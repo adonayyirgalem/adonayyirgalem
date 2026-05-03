@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive RC Circuit Simulator</title>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f9fafb;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 20px 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            max-width: 800px;
+            width: 100%;
+        }
+        h2 { text-align: center; color: #2c3e50; }
+        
+        /* Schematic Area */
+        .schematic-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #fdfdfd;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #e2e8f0;
+            border-radius: 8px;
+        }
+        select, button {
+            padding: 8px 12px;
+            font-size: 16px;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+        }
+        button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #2563eb; }
+        button:disabled { background-color: #94a3b8; cursor: not-allowed; }
+        
+        .tau-display {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1e40af;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Graph */
+        #oscilloscope {
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Interactive RC Circuit Lab</h2>
+    
+    <!-- Visual Circuit Schematic (SVG) -->
+    <div class="schematic-container">
+        <svg width="400" height="250" viewBox="0 0 400 250">
+            <!-- Wires -->
+            <polyline points="50,200 50,50 150,50" fill="none" stroke="#333" stroke-width="3"/>
+            <polyline points="250,50 350,50 350,100" fill="none" stroke="#333" stroke-width="3"/>
+            <polyline points="350,150 350,200 50,200" fill="none" stroke="#333" stroke-width="3"/>
+            
+            <!-- Battery (5V) -->
+            <line x1="30" y1="110" x2="70" y2="110" stroke="#333" stroke-width="3"/>
+            <line x1="20" y1="125" x2="80" y2="125" stroke="#333" stroke-width="5"/>
+            <line x1="30" y1="140" x2="70" y2="140" stroke="#333" stroke-width="3"/>
+            <line x1="20" y1="155" x2="80" y2="155" stroke="#333" stroke-width="5"/>
+            <text x="10" y="140" font-size="16" font-family="monospace">5V</text>
+
+            <!-- Switch -->
+            <circle cx="150" cy="50" r="4" fill="#333"/>
+            <circle cx="250" cy="50" r="4" fill="#333"/>
+            <line id="switch-arm" x1="150" y1="50" x2="230" y2="20" stroke="#ef4444" stroke-width="4"/>
+            <text x="180" y="20" font-size="14" fill="#ef4444" id="switch-label">Switch (OPEN)</text>
+
+            <!-- Resistor -->
+            <polyline points="350,100 335,105 365,115 335,125 365,135 335,145 350,150" fill="none" stroke="#333" stroke-width="3"/>
+            <text x="375" y="130" font-size="16" id="r-svg-label">10 kΩ</text>
+
+            <!-- Capacitor -->
+            <line x1="180" y1="185" x2="180" y2="215" stroke="#333" stroke-width="4"/>
+            <line x1="195" y1="185" x2="195" y2="215" stroke="#333" stroke-width="4"/>
+            <text x="170" y="235" font-size="16" id="c-svg-label">100 μF</text>
+        </svg>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <div>
+            <label for="resistor">Resistor (R): </label>
+            <select id="resistor">
+                <option value="1000">1 kΩ</option>
+                <option value="10000" selected>10 kΩ</option>
+                <option value="47000">47 kΩ</option>
+                <option value="100000">100 kΩ</option>
+            </select>
+        </div>
+        <div>
+            <label for="capacitor">Capacitor (C): </label>
+            <select id="capacitor">
+                <option value="0.00001">10 μF</option>
+                <option value="0.000047">47 μF</option>
+                <option value="0.0001" selected>100 μF</option>
+                <option value="0.00047">470 μF</option>
+            </select>
+        </div>
+        <div class="tau-display">
+            τ = <span id="tau-value" style="margin-left: 5px;">1.00</span> s
+        </div>
+    </div>
+    
+    <div style="text-align: center; margin-bottom: 20px;">
+        <button id="sim-btn">Close Switch & Start Simulation</button>
+        <button id="reset-btn" style="background-color: #64748b;">Reset Circuit</button>
+    </div>
+
+    <!-- Graph Area -->
+    <div id="oscilloscope"></div>
+</div>
+
+<script>
+    const V_SOURCE = 5;
+    let timer = null;
+    let time = 0;
+    let tau = 1;
+    let isRunning = false;
+
+    // DOM Elements
+    const resSelect = document.getElementById('resistor');
+    const capSelect = document.getElementById('capacitor');
+    const tauValue = document.getElementById('tau-value');
+    const simBtn = document.getElementById('sim-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const switchArm = document.getElementById('switch-arm');
+    const switchLabel = document.getElementById('switch-label');
+    const rSvgLabel = document.getElementById('r-svg-label');
+    const cSvgLabel = document.getElementById('c-svg-label');
+
+    // Initialize Plotly Graph
+    function initGraph() {
+        Plotly.newPlot('oscilloscope', [{
+            x: [0], y: [0], mode: 'lines',
+            line: {color: '#ef4444', width: 3},
+            name: 'Capacitor Voltage'
+        }, {
+            // Marker for the Time Constant (tau, 63.2%)
+            x: [], y: [], mode: 'markers+text',
+            marker: {size: 10, color: '#1e40af'},
+            text: ['τ (63.2%)'], textposition: 'top left',
+            name: 'Time Constant'
+        }], {
+            title: 'Oscilloscope: Voltage vs. Time',
+            xaxis: { title: 'Time (s)', range: [0, 5] },
+            yaxis: { title: 'Voltage (V)', range: [0, 5.5] },
+            margin: { t: 40, l: 50, r: 20, b: 40 }
+        });
+    }
+
+    function updateSchematicLabels() {
+        const rVal = parseInt(resSelect.value);
+        const cVal = parseFloat(capSelect.value);
+        
+        rSvgLabel.textContent = (rVal / 1000) + ' kΩ';
+        cSvgLabel.textContent = (cVal * 1000000) + ' μF';
+        
+        tau = rVal * cVal;
+        tauValue.textContent = tau.toFixed(2);
+        
+        // Update x-axis to show roughly 5 time constants
+        Plotly.relayout('oscilloscope', { 'xaxis.range': [0, tau * 5] });
+    }
+
+    function startSimulation() {
+        if (isRunning) return;
+        isRunning = true;
+        
+        // Visually close switch
+        switchArm.setAttribute('x2', '250');
+        switchArm.setAttribute('y2', '50');
+        switchArm.setAttribute('stroke', '#22c55e'); // Green
+        switchLabel.textContent = 'Switch (CLOSED)';
+        switchLabel.setAttribute('fill', '#22c55e');
+
+        // Disable dropdowns during simulation
+        resSelect.disabled = true;
+        capSelect.disabled = true;
+        simBtn.disabled = true;
+
+        time = 0;
+        const timeStep = tau / 20; // Resolution of the drawing
+
+        // Clear previous graph
+        Plotly.update('oscilloscope', {x: [[0]], y: [[0]]}, {}, [0]);
+        Plotly.update('oscilloscope', {x: [[]], y: [[]]}, {}, [1]);
+
+        timer = setInterval(() => {
+            time += timeStep;
+            // standard charging equation: V = V0 * (1 - e^(-t/RC))
+            let v = V_SOURCE * (1 - Math.exp(-time / tau));
+
+            Plotly.extendTraces('oscilloscope', { x: [[time]], y: [[v]] }, [0]);
+
+            // Mark the time constant when we pass it
+            if (time >= tau && time - timeStep < tau) {
+                let vTau = V_SOURCE * (1 - Math.exp(-1)); // ~3.16V
+                Plotly.update('oscilloscope', {x: [[tau]], y: [[vTau]]}, {}, [1]);
+            }
+
+            // Stop at 5 time constants (fully charged practically)
+            if (time >= tau * 5) {
+                clearInterval(timer);
+                isRunning = false;
+            }
+        }, 50); // Draw every 50ms for smooth animation
+    }
+
+    function resetSimulation() {
+        clearInterval(timer);
+        isRunning = false;
+        
+        // Open switch
+        switchArm.setAttribute('x2', '230');
+        switchArm.setAttribute('y2', '20');
+        switchArm.setAttribute('stroke', '#ef4444'); // Red
+        switchLabel.textContent = 'Switch (OPEN)';
+        switchLabel.setAttribute('fill', '#ef4444');
+
+        resSelect.disabled = false;
+        capSelect.disabled = false;
+        simBtn.disabled = false;
+
+        initGraph();
+        updateSchematicLabels();
+    }
+
+    // Event Listeners
+    resSelect.addEventListener('change', () => { if (!isRunning) { resetSimulation(); } });
+    capSelect.addEventListener('change', () => { if (!isRunning) { resetSimulation(); } });
+    simBtn.addEventListener('click', startSimulation);
+    resetBtn.addEventListener('click', resetSimulation);
+
+    // Initial setup
+    initGraph();
+    updateSchematicLabels();
+
+</script>
+</body>
+</html>
